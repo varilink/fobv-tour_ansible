@@ -1,0 +1,35 @@
+# ------------------------------------------------------------------------------
+# playbooks/add-dns-mask.yml
+# ------------------------------------------------------------------------------
+
+# Add a temporary DNS mask for the 3D tour website to our office dnsmasq
+# service.
+
+---
+
+- name: Prompt for the host that you want to add a DNS mask for
+  hosts: localhost
+
+  vars_prompt:
+
+    - name: fobv_host
+      prompt: Which host do you want to add a DNS mask for?
+      private: false
+
+  tasks:
+
+    - name: Set a localhost fact to the name of the selected FoBV host
+      ansible.builtin.set_fact:
+        fobv_host: "{{ fobv_host }}"
+
+- hosts: hub
+
+  tasks:
+
+    - ansible.builtin.import_role:
+        name: dns
+        tasks_from: create-record
+      vars:
+        dns_record_hostname: tour
+        dns_record_inventory_host: "{{ hostvars.localhost.fobv_host }}"
+        dns_record_group: project

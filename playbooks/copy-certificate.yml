@@ -1,0 +1,92 @@
+# ------------------------------------------------------------------------------
+# playbooks/copy-certificate.yml
+# ------------------------------------------------------------------------------
+
+# Copies a LetsEncrypt certificate for the 3D tour website from one host to
+# another host.
+
+---
+
+- name: Prompt for the host that we are copying from
+  hosts: localhost
+  gather_facts: false
+
+  vars_prompt:
+
+    - name: from_host
+      prompt: What host are we copying from?
+      private: false
+
+  tasks:
+
+    - ansible.builtin.add_host:
+        name: "{{ from_host }}"
+        groups: from_host
+
+- name: Fetch the LetsEncrypt full chain and private key from the from host
+  hosts: all:&from_host
+  become: yes
+
+  tasks:
+
+    - name: Stat the fullchain
+      stat:
+        path: "\
+          /etc/letsencrypt/live/tour.{{ domain_name }}/fullchain.pem"
+        follow: false
+      register: fullchain_stat
+
+    - name: Fetch the LetsEncrypt full chain
+      ansible.builtin.fetch:
+        src: "{{ fullchain_stat.stat.lnk_source }}"
+        dest: "/tmp/fullchain.pem"
+        flat: true
+
+    - name: Stat the privkey
+      stat:
+        path: "\
+          /etc/letsencrypt/live/tour.{{ domain_name }}/privkey.pem"
+        follow: false
+      register: privkey_stat
+
+    - name: Fetch the LetsEncrypt private key
+      ansible.builtin.fetch:
+        src: "{{ privkey_stat.stat.lnk_source }}"
+        dest: "/tmp/privkey.pem"
+        flat: true
+
+- name: Prompt for the host that we are copying to
+  hosts: localhost
+  gather_facts: false
+
+  vars_prompt:
+
+    - name: to_host
+      prompt: What host are we copying to?
+      private: false
+
+  tasks:
+
+    - ansible.builtin.add_host:
+        name: "{{ to_host }}"
+        groups: to_host
+
+- name: Copy the LetsEncrypt full chain and private key to the to host
+  hosts: all:&to_host
+  become: yes
+
+  vars:
+    cert_file_name: "{{ ('tour.' ~ domain_name) | replace('.', '_') }}.pem"
+
+  tasks:
+
+    - name: Copy the LetsEncrypt full chain
+      ansible.builtin.copy:
+        src: "/tmp/fullchain.pem"
+        dest: "/etc/ssl/certs/{{ cert_file_name }}"
+
+    - name: Copy the LetsEncrypt private key
+      ansible.builtin.copy:
+        src: "/tmp/privkey.pem"
+        dest: "/etc/ssl/private/{{ cert_file_name }}"
+        mode: u=rw,g=,o=

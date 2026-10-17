@@ -1,0 +1,38 @@
+# ------------------------------------------------------------------------------
+# playbooks/get-certificate.yml
+# ------------------------------------------------------------------------------
+
+# Gets an SSL certificate for an instance of the tour website from LetsEncrypt.
+
+---
+
+- name: Prompt for the host that we are getting a certificate for
+  hosts: localhost
+
+  vars_prompt:
+
+    - name: fobv_host
+      prompt: "\
+        Which host do you want to get a certificate for the 3D tour website on?"
+      private: false
+
+  tasks:
+
+    - ansible.builtin.add_host:
+        name: "{{ fobv_host }}"
+        groups: fobv_host
+      changed_when: false
+
+- hosts: all:&fobv_host
+  become: yes
+
+  vars:
+    server_name: "{{ 'tour.' ~ domain_name }}"
+
+  tasks:
+
+    - name: Get an SSL certificate
+      ansible.builtin.command: >-
+        certbot -n certonly
+        --webroot -w /var/www/{{ server_name }}/html/
+        -d {{ server_name }}

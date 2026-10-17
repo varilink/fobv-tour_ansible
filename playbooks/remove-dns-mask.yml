@@ -1,0 +1,44 @@
+# ------------------------------------------------------------------------------
+# playbooks/remove-dns-mask.yml
+# ------------------------------------------------------------------------------
+
+---
+
+- name: Prompt for the host that you want to remove a DNS mask for
+  hosts: localhost
+
+  vars_prompt:
+
+    - name: fobv_host
+      prompt: Which host do you want to remove a DNS mask for?
+      private: false
+
+  tasks:
+
+    - name: Set a localhost fact to the name of the selected FoBV host
+      ansible.builtin.set_fact:
+        fobv_host: "{{ fobv_host }}"
+
+- name: Create or update external DNS records via the Linode API
+  hosts: gateway
+
+  tasks:
+
+    - ansible.builtin.import_role:
+        name: dns_api
+        tasks_from: create-or-update-address-records
+      vars:
+        dns_record_inventory_host: "{{ hostvars.localhost.fobv_host }}"
+        dns_record_hostname: tour
+
+- name: Remove the DNS mask from the office network dnsmasq service
+  hosts: hub
+
+  tasks:
+
+    - ansible.builtin.import_role:
+        name: dns
+        tasks_from: delete-record
+      vars:
+        dns_record_inventory_host: "{{ hostvars.localhost.fobv_host }}"
+        dns_record_hostname: "tour.{{ domain_name }}

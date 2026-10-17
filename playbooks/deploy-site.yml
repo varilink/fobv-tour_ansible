@@ -1,0 +1,101 @@
+# ------------------------------------------------------------------------------
+# playbooks/deploy-site.yml
+# ------------------------------------------------------------------------------
+
+# Installs an instance of the FoBV 3D tour website onto a web host.
+
+---
+
+- name: Prompt for the host that we are deploying to
+  hosts: localhost
+
+  vars_prompt:
+
+    - name: fobv_host
+      prompt: Which host do you want to install the 3D tour website on?
+      private: false
+
+  tasks:
+
+    - ansible.builtin.add_host:
+        name: "{{ fobv_host }}"
+        groups: fobv_host
+      changed_when: false
+
+- hosts: all:&fobv_host
+  become: yes
+
+  vars:
+    server_name: "{{ 'tour.' ~ domain_name }}"
+    cert_file_name: "{{ server_name | replace('.', '_') }}.pem"
+
+  tasks:
+
+    - ansible.builtin.import_role:
+        name: nginx
+
+    - name: Create directory to hold files for the tour website
+      ansible.builtin.file:
+        path: /var/www/{{ server_name }}/
+        state: directory
+
+    - name: Create directory to be the webroot for the tour website
+      ansible.builtin.file:
+        path: /var/www/{{ server_name }}/html/
+        state: directory
+        owner: www-data
+        group: www-data
+
+    - name: Configure the folder for LetsEncrypt validation challenges
+      ansible.builtin.file:
+        path: "/var/www/{{ server_name }}/html/.well-known/acme-challenge/"
+        state: directory
+        owner: www-data
+        group: www-data
+
+    - name: Install rsync on the target
+      ansible.builtin.apt:
+        name: rsync
+        install_recommends: no
+
+    - name: Synchronize out the tour HTML files
+      ansible.builtin.synchronize:
+        src: html/
+        dest: /var/www/{{ server_name }}/html/
+        rsync_opts:
+          - "--chown=www-data:www-data"
+          - "--exclude=.gitignore"
+          - "--exclude=.well-known"
+
+    - name: Test if we have obtained an SSL certificate using certbot yet
+      ansible.builtin.shell: "\
+        certbot certificates |
+        grep 'Certificate Name: {{ server_name }}'"
+      register: certbot_cmd
+      failed_when: "\
+        certbot_cmd.rc != 0 and certbot_cmd.rc != 1"
+      changed_when: false
+
+    - name: Test if a copied SSL certificate has been installed
+      ansible.builtin.stat:
+        path: /etc/ssl/certs/{{ cert_file_name }}
+      register: certs_stat
+
+    - name: Template out the Nginx site configuration
+      ansible.builtin.template:
+        src: tour.bennerleyviaduct.org.uk.conf.j2
+        dest: /etc/nginx/sites-available/tour.bennerleyviaduct.org.uk.conf
+      vars:
+        certbot_cert: |-
+          {% if certbot_cmd.rc == 0 %}{{ 'yes' | bool }}
+          {%- else %}{{ 'no' | bool }}
+          {%- endif %}
+        copied_cert: "{{ certs_stat.stat.exists }}"
+      notify: Nginx configuration changed
+
+    - name: Enable the Nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/{{ server_name }}.conf
+        src: /etc/nginx/sites-available/{{ server_name }}.conf
+        state: link
+      notify: Nginx configuration changed
